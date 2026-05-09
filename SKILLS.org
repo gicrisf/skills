@@ -458,71 +458,6 @@ nix-shell --run "eldev test"
 nix develop -c eldev test
 #+end_src
 
-**** Getting older Emacs versions
-
-The current ~nixos-unstable~ channel only ships ~emacs~ (latest, e.g. 30.2) and ~emacs30~. Older majors (~emacs28~, ~emacs29~) are removed once they fall out of nixpkgs's active set. To get them, pin a revision:
-
-| Want      | nixpkgs branch     | Version shipped |
-|-----------+--------------------+-----------------|
-| Emacs 29  | ~nixos-24.05~      | 29.4            |
-| Emacs 28  | ~nixos-23.11~      | 28.2            |
-| Emacs 27  | ~nixos-22.05~      | 27.2            |
-
-One-shot build — write a tiny ~.nix~ expression to /tmp and ~nix-build~ it:
-
-#+begin_src sh
-cat > /tmp/emacs29.nix <<'EOF'
-let
-  pkgs = import (fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
-  }) {};
-in pkgs.emacs29
-EOF
-
-nix-build /tmp/emacs29.nix --no-out-link
-#+end_src
-
-~nix-build~ prints the store path (e.g. ~/nix/store/...-emacs-29.4~). The binary is at ~<store-path>/bin/emacs~. Omit ~--no-out-link~ to register a GC root.
-
-For a reproducible pin (~fetchTarball~ follows the branch tip, so the hash drifts):
-
-#+begin_src nix
-let
-  pkgs = import (fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/<commit-sha>.tar.gz";
-    sha256 = "<nix-prefetch-url-output>";
-  }) {};
-in pkgs.emacs29
-#+end_src
-
-Get ~sha256~:
-
-#+begin_src sh
-nix-prefetch-url --unpack https://github.com/NixOS/nixpkgs/archive/<commit-sha>.tar.gz
-#+end_src
-
-Headless variants (faster builds, enough for ~--batch~):
-
-- ~pkgs.emacs29-nox~ — no X/GTK
-- ~pkgs.emacs29-gtk3~ / ~pkgs.emacs29-pgtk~
-
-Add to ~shell.nix~ for multiple Emacs versions together:
-
-#+begin_src nix
-{ pkgs ? import <nixpkgs> {} }:
-
-let
-  oldPkgs = import (fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
-  }) {};
-in
-pkgs.mkShell {
-  buildInputs = [ pkgs.emacs oldPkgs.emacs29 /* eldev, etc. */ ];
-}
-#+end_src
-
-Both land on ~PATH~; disambiguate by full path or by ~EMACS=~.
-
 *** Targeting a specific Emacs binary
 
 Eldev picks the Emacs to run from the ~EMACS~ (or ~ELDEV_EMACS~) environment variable, falling back to ~emacs~ on ~PATH~. Set it inline — no shell pollution:
@@ -582,4 +517,73 @@ For one-liners, ~--eval '(form)'~ works but nested quotes get painful. Multi-lin
 | ~eldev lint~ / ~eldev doctor~ | Lint / check health      |
 
 Troubleshooting: ~-t~ / ~--trace~ shows what Eldev does; ~-d~ / ~--debug~ shows stacktraces. ~-X~ / ~--external~ uses preinstalled deps (skip isolation).
+
+** Older Emacs via Nix
+:PROPERTIES:
+:EXPORT_SKILL_NAME: older-emacs-via-nix
+:EXPORT_SKILL_DESCRIPTION: Pin nixpkgs revisions to build and use older Emacs versions (27, 28, 29) for testing eldev projects. Use when user needs an older Emacs for testing, or mentions emacs27/28/29 and nix.
+:END:
+
+The current ~nixos-unstable~ channel only ships ~emacs~ (the latest, e.g. 30.2) and ~emacs30~. Older majors (~emacs28~, ~emacs29~) are removed once they fall out of nixpkgs's active set. To get them, pin a revision:
+
+| Want      | nixpkgs branch     | Version shipped |
+|-----------+--------------------+-----------------|
+| Emacs 29  | ~nixos-24.05~      | 29.4            |
+| Emacs 28  | ~nixos-23.11~      | 28.2            |
+| Emacs 27  | ~nixos-22.05~      | 27.2            |
+
+One-shot build — write a tiny ~.nix~ expression to /tmp and ~nix-build~ it:
+
+#+begin_src sh
+cat > /tmp/emacs29.nix <<'EOF'
+let
+  pkgs = import (fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
+  }) {};
+in pkgs.emacs29
+EOF
+
+nix-build /tmp/emacs29.nix --no-out-link
+#+end_src
+
+~nix-build~ prints the store path (e.g. ~/nix/store/...-emacs-29.4~). The binary is at ~<store-path>/bin/emacs~. Omit ~--no-out-link~ to register a GC root.
+
+For a reproducible pin (~fetchTarball~ follows the branch tip, so the hash drifts over time):
+
+#+begin_src nix
+let
+  pkgs = import (fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/<commit-sha>.tar.gz";
+    sha256 = "<nix-prefetch-url-output>";
+  }) {};
+in pkgs.emacs29
+#+end_src
+
+Get the ~sha256~:
+
+#+begin_src sh
+nix-prefetch-url --unpack https://github.com/NixOS/nixpkgs/archive/<commit-sha>.tar.gz
+#+end_src
+
+Headless variants (substitute the attribute name, faster builds for ~--batch~):
+
+- ~pkgs.emacs29-nox~ — no X/GTK
+- ~pkgs.emacs29-gtk3~ / ~pkgs.emacs29-pgtk~
+
+Add to ~shell.nix~ for multiple Emacs versions together:
+
+#+begin_src nix
+{ pkgs ? import <nixpkgs> {} }:
+
+let
+  oldPkgs = import (fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/nixos-24.05.tar.gz";
+  }) {};
+in
+pkgs.mkShell {
+  buildInputs = [ pkgs.emacs oldPkgs.emacs29 /* eldev, etc. */ ];
+}
+#+end_src
+
+Both land on ~PATH~; disambiguate by full path or by ~EMACS=~ (see the ~eldev~ skill's /Targeting a specific Emacs binary/ section).
 
