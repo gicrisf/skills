@@ -215,14 +215,14 @@ After drafting, verify:
 *** Skill Structure
 
 Source (~SKILLS.org~):
-#+begin_example
- #+SKILL_BASE_DIR: skills
- * Category                                  # :EXPORT_SKILL_SUBDIR: category
- ** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
+#+begin_src org
+,#+SKILL_BASE_DIR: skills
+,* Category                                  # :EXPORT_SKILL_SUBDIR: category
+,** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
                                              # :EXPORT_SKILL_DESCRIPTION: Brief description.
- *** Quick start
- ...
-#+end_example
+,*** Quick start
+...
+#+end_src
 
 Generated (~skills/~):
 #+begin_example
@@ -238,22 +238,22 @@ category/skill-name/
 
 In ~SKILLS.org~, a skill entry follows this pattern. The YAML frontmatter is auto-generated from ~EXPORT_SKILL_*~ properties — do not write it manually.
 
-#+begin_example
- ** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
-                                             # :EXPORT_SKILL_DESCRIPTION: Brief description.
+#+begin_src org
+,** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
+                                              # :EXPORT_SKILL_DESCRIPTION: Brief description.
 
- *** Quick start
+,*** Quick start
 
  [Minimal working example]
 
- *** Workflows
+,*** Workflows
 
  [Step-by-step processes with checklists for complex tasks]
 
- *** Advanced features
+,*** Advanced features
 
  [Link to separate files: See REFERENCE.md]
-#+end_example
+#+end_src
 
 **** Org properties reference
 

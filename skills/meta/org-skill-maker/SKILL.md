@@ -33,13 +33,13 @@ description: >
 
 Source (`SKILLS.org`):
 
-```
+```org
 #+SKILL_BASE_DIR: skills
- * Category                                  # :EXPORT_SKILL_SUBDIR: category
- ** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
+* Category                                  # :EXPORT_SKILL_SUBDIR: category
+** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
                                              # :EXPORT_SKILL_DESCRIPTION: Brief description.
- *** Quick start
- ...
+*** Quick start
+...
 ```
 
 Generated (`skills/`):
@@ -57,19 +57,19 @@ category/skill-name/
 
 In `SKILLS.org`, a skill entry follows this pattern. The YAML frontmatter is auto-generated from `EXPORT_SKILL_*` properties — do not write it manually.
 
-```
+```org
 ** Skill Name                               # :EXPORT_SKILL_NAME: skill-name
-                                             # :EXPORT_SKILL_DESCRIPTION: Brief description.
+                                              # :EXPORT_SKILL_DESCRIPTION: Brief description.
 
- *** Quick start
+*** Quick start
 
  [Minimal working example]
 
- *** Workflows
+*** Workflows
 
  [Step-by-step processes with checklists for complex tasks]
 
- *** Advanced features
+*** Advanced features
 
  [Link to separate files: See REFERENCE.md]
 ```
