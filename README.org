@@ -1,0 +1,47 @@
+#+title: Skills
+#+author: Giovanni Crisalfi
+
+My AI agent skills. Written in [[https://orgmode.org][Org-mode]] and exported with [[https://github.com/gicrisf/ox-skills][ox-skills]].
+
+* Workflow
+
+1. Edit =SKILLS.org=
+2. Run =M-x ox-skills-export-wim-to-md= (=C-c C-e s a=, or =SPC m e s a= in evil)
+
+Hand-written =.md= files in =skills/= are left untouched (you can mix exported and manual skills freely).
+
+* Installation
+
+#+begin_src sh
+git clone git@github.com:gicrisf/skills.git ~/dev/skills
+#+end_src
+
+** Batch (recommended)
+
+Requires [[https://www.gnu.org/software/stow/][GNU Stow]].
+
+#+begin_src sh
+cd ~/dev/skills && stow -t ~ links
+#+end_src
+
+Symlinks =.claude/skills=, =.opencode/skills=, =.agents/skills= and anything in =links/=.
+
+** Single symlink
+
+#+begin_src sh
+ln -sfn ~/dev/skills/skills ~/.agents/skills
+#+end_src
+
+To undo:
+
+#+begin_src sh
+unlink ~/.agents/skills
+#+end_src
+
+* License
+
+MIT. See [[./LICENSE][LICENSE]].
+
+Some skills adapted from:
+- [[https://github.com/JuliusBrussee/caveman][JuliusBrussee/caveman]] (MIT)
+- [[https://github.com/mattpocock/skills][mattpocock/skills]] (MIT)
