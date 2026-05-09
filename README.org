@@ -10,6 +10,16 @@ My AI agent skills. Written in [[https://orgmode.org][Org-mode]] and exported wi
 
 Hand-written =.md= files in =skills/= are left untouched (you can mix exported and manual skills freely).
 
+** Creating a new skill
+
+Load the [[file:skills/meta/org-skill-maker/SKILL.md][org-skill-maker]] skill to start immediately! It asks what you need, adds the right entry to =SKILLS.org= with ~EXPORT_SKILL_*~ properties, and exports it.
+
+Install first (see below) to make it available in your environment, or just tell your agent:
+
+#+begin_quote
+Load the org-skill-maker skill and create a skill for <your task>
+#+end_quote
+
 * Installation
 
 #+begin_src sh
