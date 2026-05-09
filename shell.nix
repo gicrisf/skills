@@ -19,9 +19,9 @@ let
   };
 in
 pkgs.mkShell {
-  buildInputs = [ pkgs.emacs eldev ];
+  buildInputs = [ pkgs.emacs eldev pkgs.stow ];
   shellHook = ''
     echo "skills development shell"
-    echo "Run 'eldev emacs --batch -l export-skills.el' to export all skills"
+    echo "  Export: eldev emacs --batch -l export-skills.el"
   '';
 }
