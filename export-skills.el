@@ -17,9 +17,12 @@
 
 (require 'ox-skills)
 
-;; Visit the file first to initialise org-element cache
-(find-file "SKILLS.org")
-(ox-skills-export-wim-to-md t)
+;; Guard: Eldev loads this file twice (require + -l), so skip on re-entry
+(unless (boundp 'export-skills--done)
+  (setq export-skills--done t)
+  ;; Visit the file first to initialise org-element cache
+  (find-file "SKILLS.org")
+  (ox-skills-export-wim-to-md t))
 
 (provide 'export-skills)
 

@@ -22,7 +22,9 @@ description: >
     - Create a `** Skill Name` heading under it with `:EXPORT_SKILL_NAME:` and `:EXPORT_SKILL_DESCRIPTION:` properties
     - Write instructions under `***` subsections
 
-3. ****Export**** — run `M-x ox-skills-export-wim-to-md` (`C-c C-e s a` / `SPC m e s a`) to generate `skills/<subdir>/<name>/SKILL.md`
+3. ****Export**** — generate `skills/<subdir>/<name>/SKILL.md`:
+    - Interactively: `M-x ox-skills-export-wim-to-md` (`C-c C-e s a` / `SPC m e s a`)
+    - Batch: `eldev emacs --batch -l export-skills.el` (needs `Eldev` file — see Export workflow)
 
 4. ****Review with user**** — present draft and ask:
     - Does this cover your use cases?
@@ -142,14 +144,31 @@ Extract detailed sections into `REFERENCE.md` and link to it from the main skill
 
 ## Export workflow
 
-```sh
-# After editing SKILLS.org, run in Emacs:
+`SKILLS.org` is the single source of truth; `skills/` is generated output. Re-run export after every edit.
+
+### Interactively (Emacs)
+
+```
 M-x ox-skills-export-wim-to-md
 # or: C-c C-e s a  (default bindings)
 # or: SPC m e s a  (evil/spacemacs)
 ```
 
-`SKILLS.org` is the single source of truth; `skills/` is generated output. Re-run export after every edit to keep the output in sync.
+### Batch (Eldev + export-skills.el)
+
+The repo provides `export-skills.el` and an `Eldev` file that handles dependency management (fetches `ox-skills` from GitHub automatically).
+
+```sh
+eldev emacs --batch -l export-skills.el
+```
+
+With Nix (if `eldev` is not on `PATH`):
+
+```sh
+nix-shell --run "eldev emacs --batch -l export-skills.el"
+```
+
+The `Eldev` file declares ox-skills as a VC dependency from `gicrisf/ox-skills` and uses the `gnu` archive. No manual setup needed.
 
 ## Review Checklist
 
