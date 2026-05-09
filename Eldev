@@ -1,0 +1,13 @@
+; -*- mode: emacs-lisp; lexical-binding: t -*-
+
+;; Eldev configuration for the skills repository.
+;;
+;; Manages ox-skills dependency for exporting SKILLS.org.
+
+(eldev-use-package-archive 'gnu)
+
+;; Fetch ox-skills from GitHub
+(eldev-use-vc-repository 'ox-skills :github "gicrisf/ox-skills")
+
+;; Declare dependency for 'eldev emacs' commands
+(eldev-add-extra-dependencies 'emacs 'ox-skills)
