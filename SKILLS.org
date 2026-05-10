@@ -354,6 +354,204 @@ After drafting, verify:
 - [ ] References one level deep
 - [ ] Run export and verify the generated output looks correct
 
+** Karpathy Guidelines
+:PROPERTIES:
+:EXPORT_SKILL_NAME: karpathy-guidelines
+:EXPORT_SKILL_DESCRIPTION: Behavioral guidelines to reduce common LLM coding mistakes. Surface assumptions, avoid overcomplication, make surgical changes, define verifiable success criteria. Use when writing, reviewing, or refactoring code. Derived from Andrej Karpathy's observations on LLM coding pitfalls.
+:END:
+
+# Derived from: https://x.com/karpathy/status/2015883857489522876
+
+These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+*** Think Before Coding
+
+Don't assume. Don't hide confusion. Surface tradeoffs.
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them — don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+*** Simplicity First
+
+Minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+*** Surgical Changes
+
+Touch only what you must. Clean up only your own mess.
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it — don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+*** Goal-Driven Execution
+
+Define success criteria. Loop until verified.
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+#+begin_example
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+#+end_example
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+*** Examples                                               :noexport:
+
+**** Think: Hidden Assumptions
+
+User says: "Add a feature to export user data"
+
+#+begin_example python
+;; WRONG — assumes format, scope, fields silently
+def export_users(format='json'):
+    """Export all users to a file."""
+    users = User.query.all()
+    if format == 'json':
+        with open('users.json', 'w') as f:
+            json.dump([u.to_dict() for u in users], f)
+    elif format == 'csv':
+        with open('users.csv', 'w') as f:
+            writer = csv.DictWriter(f, fieldnames=['id', 'email', 'name'])
+            writer.writeheader()
+            writer.writerows([u.to_dict() for u in users])
+    return f"Exported {len(users)} users"
+#+end_example
+
+Problems: assumed ALL users (pagination? privacy?), assumed file location, assumed fields, assumed CSV columns.
+
+RIGHT: surface assumptions before coding — ask about scope, format, fields, volume.
+
+**** Simplicity: Over-abstraction
+
+User says: "Add a function to calculate discount"
+
+#+begin_example python
+;; WRONG — Strategy pattern for one calculation
+from abc import ABC, abstractmethod
+class DiscountStrategy(ABC):
+    @abstractmethod
+    def calculate(self, amount: float) -> float: pass
+
+class PercentageDiscount(DiscountStrategy):
+    def __init__(self, percentage: float):
+        self.percentage = percentage
+    def calculate(self, amount: float) -> float:
+        return amount * (self.percentage / 100)
+
+class FixedDiscount(DiscountStrategy):
+    def __init__(self, fixed_amount: float):
+        self.fixed_amount = fixed_amount
+    def calculate(self, amount: float) -> float:
+        return min(self.fixed_amount, amount)
+
+# Usage: 30+ lines of setup for a trivial calc
+#+end_example
+
+RIGHT: one function.
+
+#+begin_example python
+def calculate_discount(amount: float, percent: float) -> float:
+    return amount * (percent / 100)
+#+end_example
+
+Add complexity only when you actually need multiple discount types.
+
+**** Surgical: Drive-by Refactoring
+
+User says: "Fix the bug where empty emails crash the validator"
+
+#+begin_example diff
+;; WRONG — changed comments, added username validation, added docstring
+  def validate_user(user_data):
+-     # Check email format
+-     if not user_data.get('email'):
++     """Validate user data."""
++     email = user_data.get('email', '').strip()
++     if not email:
+          raise ValueError("Email required")
+-     if '@' not in user_data['email']:
++     if '@' not in email or '.' not in email.split('@')[1]:
+          raise ValueError("Invalid email")
+-     if not user_data.get('username'):
++     username = user_data.get('username', '').strip()
++     if not username:
+          raise ValueError("Username required")
++     if len(username) < 3:
++         raise ValueError("Username too short")
+      return True
+#+end_example
+
+RIGHT: only the lines that fix the empty email crash.
+
+#+begin_example diff
+  def validate_user(user_data):
+      # Check email format
+-     if not user_data.get('email'):
++     email = user_data.get('email', '')
++     if not email or not email.strip():
+          raise ValueError("Email required")
+      if '@' not in user_data['email']:
+          raise ValueError("Invalid email")
+      # Check username
+      if not user_data.get('username'):
+          raise ValueError("Username required")
+      return True
+#+end_example
+
+**** Goal-Driven: Reproduce Before Fix
+
+User says: "The sorting breaks when there are duplicate scores"
+
+WRONG — immediately changes sort logic without confirming the bug.
+
+RIGHT — reproduce first, then fix:
+
+#+begin_example python
+# 1. Write test that reproduces the issue
+def test_sort_with_duplicate_scores():
+    scores = [
+        {'name': 'Alice', 'score': 100},
+        {'name': 'Bob', 'score': 100},
+    ]
+    result = sort_scores(scores)
+    assert result[0] == {'name': 'Alice', 'score': 100}
+    assert result[1] == {'name': 'Bob', 'score': 100}
+
+# Verify: test fails (non-deterministic ordering)
+
+# 2. Fix with stable sort
+def sort_scores(scores):
+    return sorted(scores, key=lambda x: (-x['score'], x['name']))
+
+# Verify: test passes consistently
+#+end_example
+
 * Elisp
 :PROPERTIES:
 :EXPORT_SKILL_SUBDIR: elisp
@@ -590,4 +788,71 @@ Both land on ~PATH~; disambiguate by full path or by ~EMACS=~ (see the ~eldev~ s
 - [ ] ~eldev lint~ clean (checkdoc + package-lint + relint)
 - [ ] ~eldev -c test~ clean (byte-compile + tests)
 - [ ] Recipe: ~:fetcher~ before ~:repo~
+
+* Nix
+:PROPERTIES:
+:EXPORT_SKILL_SUBDIR: nix
+:END:
+
+** Nix Shell Toolbox
+:PROPERTIES:
+:EXPORT_SKILL_NAME: nix-shell-toolbox
+:EXPORT_SKILL_DESCRIPTION: Run temporary/ad-hoc binaries on NixOS using nix-shell -p and patchelf. Use when a prebuilt binary won't run on NixOS, or when you need a tool ephemerally without permanent installation.
+:END:
+
+*** Ephemeral tools with nix-shell -p
+
+Run any package temporarily without installing it:
+
+#+begin_src sh
+nix-shell -p <pkg> --run '<command>'
+#+end_src
+
+The package is available only for that command — no profile pollution, no garbage to clean up.
+
+Examples:
+
+#+begin_src sh
+nix-shell -p patchelf --run 'patchelf --set-interpreter <path> ~/.local/bin/<binary>'
+nix-shell -p jq --run 'jq . < file.json'
+nix-shell -p ripgrep --run 'rg pattern'
+#+end_src
+
+This works for any package on nixpkgs.
+
+*** Patching ELF interpreters for NixOS
+
+NixOS does not follow the FHS convention — there is no ~/lib64/~ directory. Prebuilt Linux binaries with the standard dynamic linker hardcoded (~/lib64/ld-linux-x86-64.so.2~) will fail with:
+
+#+begin_example
+Could not start dynamically linked executable: <binary>
+NixOS cannot run dynamically linked executables intended for generic
+linux environments out of the box.
+#+end_example
+
+To make them work, patch the ELF interpreter with ~patchelf~:
+
+#+begin_src sh
+# Run patchelf ephemerally
+nix-shell -p patchelf --run \
+  'patchelf --set-interpreter /nix/store/<hash>-glibc-<version>/lib64/ld-linux-x86-64.so.2 ~/.local/bin/<binary>'
+#+end_src
+
+Find the correct glibc store path via ~ldd~:
+
+#+begin_src sh
+ldd ~/.local/bin/<binary>
+# look for the line resolving /lib64/ld-linux-x86-64.so.2
+#+end_src
+
+The patched path is pinned to a specific glibc derivation. If that store path is garbage collected (~nix-store --gc~ or system upgrade), the binary breaks and must be re-patched against the current glibc.
+
+*** PATH precedence for local binaries
+
+- To ensure ~$HOME/.local/bin~ binaries take precedence over nixpkgs versions:
+
+#+begin_src sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+#+end_src
 
