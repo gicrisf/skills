@@ -1,0 +1,1036 @@
+#+TITLE: React Agent Skills
+#+AUTHOR: from vercel-labs/agent-skills
+#+LICENSE: MIT
+
+#+SKILL_BASE_DIR: skills
+
+* React Web
+:PROPERTIES:
+:EXPORT_SKILL_SUBDIR: react
+:END:
+
+** React Data Fetching
+:PROPERTIES:
+:EXPORT_SKILL_NAME: react-data-fetching
+:EXPORT_SKILL_DESCRIPTION: Async data fetching patterns for React: eliminate waterfalls, parallelize requests, Suspense boundaries, SWR caching. Use when implementing data fetching, optimizing async operations, or reducing request waterfalls in React components.
+:END:
+
+# Derived from: vercel-labs/agent-skills (react-best-practices, sections 1, 4)
+
+*** Eliminate Waterfalls
+
+Waterfalls are the #1 performance killer. Each sequential await adds full network latency.
+
+#+begin_src typescript
+// WRONG — sequential
+const user = await fetchUser()
+const posts = await fetchPosts()
+
+// RIGHT — parallel
+const [user, posts] = await Promise.all([
+  fetchUser(),
+  fetchPosts()
+])
+#+end_src
+
+**** Defer await until needed
+
+Move awaits into branches that actually use them:
+
+#+begin_src typescript
+// WRONG — blocks both branches
+async function handle(userId, skip) {
+  const data = await fetchData(userId)
+  if (skip) return { skipped: true }
+  return processData(data)
+}
+
+// RIGHT — only blocks when needed
+async function handle(userId, skip) {
+  if (skip) return { skipped: true }
+  const data = await fetchData(userId)
+  return processData(data)
+}
+#+end_src
+
+**** Check cheap conditions before async
+
+#+begin_src typescript
+// WRONG — awaits flag even when condition is false
+const flag = await getFlag()
+if (flag && someCondition) { ... }
+
+// RIGHT — check cheap condition first
+if (someCondition) {
+  const flag = await getFlag()
+  if (flag) { ... }
+}
+#+end_src
+
+**** Strategic Suspense boundaries
+
+Wrap data-dependent sections, not whole pages:
+
+#+begin_src typescript
+function Page() {
+  return (
+    <div>
+      <Header />            {/* renders immediately */}
+      <Suspense fallback={<Skeleton />}>
+        <DataSection />     {/* streams in */}
+      </Suspense>
+      <Footer />            {/* renders immediately */}
+    </div>
+  )
+}
+#+end_src
+
+*** Client-Side Data Fetching
+
+**** SWR for automatic deduplication
+
+#+begin_src typescript
+import useSWR from 'swr'
+
+function UserList() {
+  // Multiple instances share one request
+  const { data } = useSWR('/api/users', fetcher)
+}
+#+end_src
+
+For mutations:
+
+#+begin_src typescript
+import { useSWRMutation } from 'swr/mutation'
+
+function UpdateButton() {
+  const { trigger } = useSWRMutation('/api/user', updateUser)
+  return <button onClick={() => trigger()}>Update</button>
+}
+#+end_src
+
+**** Passive event listeners
+
+Add ~{ passive: true }~ to touch/wheel listeners that don't call ~preventDefault()~:
+
+#+begin_src typescript
+useEffect(() => {
+  const handler = (e) => console.log(e.touches[0].clientX)
+  document.addEventListener('touchstart', handler, { passive: true })
+  return () => document.removeEventListener('touchstart', handler)
+}, [])
+#+end_src
+
+**** Version and minimize localStorage
+
+#+begin_src typescript
+const VERSION = 'v2'
+
+function saveConfig(config) {
+  try {
+    localStorage.setItem(`config:${VERSION}`, JSON.stringify(config))
+  } catch { /* quota exceeded, private browsing */ }
+}
+
+function loadConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(`config:${VERSION}`))
+  } catch { return null }
+}
+#+end_src
+
+Always wrap in try-catch — ~getItem~ / ~setItem~ throw in incognito, quota exceeded, or disabled storage.
+
+** React Render Optimization
+:PROPERTIES:
+:EXPORT_SKILL_NAME: react-render-optimization
+:EXPORT_SKILL_DESCRIPTION: React re-render and rendering performance patterns: useMemo, useCallback, state management, memo, Suspense, hydration, SVG optimization. Use when optimizing component re-renders, reducing unnecessary renders, or improving rendering performance in React apps.
+:END:
+
+# Derived from: vercel-labs/agent-skills (react-best-practices, sections 5, 6)
+
+*** Re-render Optimization
+
+**** Calculate derived state during render
+
+#+begin_src typescript
+// WRONG — redundant state + effect
+const [fullName, setFullName] = useState('')
+useEffect(() => setFullName(first + ' ' + last), [first, last])
+
+// RIGHT — derive during render
+const fullName = first + ' ' + last
+#+end_src
+
+**** Don't define components inside components
+
+#+begin_src typescript
+// WRONG — remounts on every render
+function Profile({ user }) {
+  const Avatar = () => <img src={user.avatar} />
+  return <Avatar />
+}
+
+// RIGHT — pass props
+function Avatar({ src }) { return <img src={src} /> }
+function Profile({ user }) { return <Avatar src={user.avatar} /> }
+#+end_src
+
+**** Functional setState updates
+
+#+begin_src typescript
+// WRONG — stale closure risk
+const addItems = useCallback((items) => {
+  setItems([...items, ...items])  // uses stale items
+}, [items])
+
+// RIGHT — functional update, no dependency needed
+const addItems = useCallback((newItems) => {
+  setItems(curr => [...curr, ...newItems])
+}, [])
+#+end_src
+
+**** Lazy state initialization
+
+#+begin_src typescript
+// WRONG — runs on every render
+const [index] = useState(buildIndex(items))
+
+// RIGHT — runs once
+const [index] = useState(() => buildIndex(items))
+#+end_src
+
+**** Narrow effect dependencies
+
+#+begin_src typescript
+// WRONG — re-runs on any user field change
+useEffect(() => { console.log(user.id) }, [user])
+
+// RIGHT — re-runs only when id changes
+useEffect(() => { console.log(user.id) }, [user.id])
+#+end_src
+
+**** Extract to memoized components
+
+#+begin_src typescript
+const UserAvatar = memo(function UserAvatar({ user }) {
+  return <Avatar id={computeAvatarId(user)} />
+})
+
+function Profile({ user, loading }) {
+  if (loading) return <Skeleton />  // skips avatar computation
+  return <UserAvatar user={user} />
+}
+#+end_src
+
+**** Hoist static JSX elements
+
+#+begin_src typescript
+const loadingSkeleton = <div className="animate-pulse h-20 bg-gray-200" />
+
+function Container() {
+  return <div>{loading && loadingSkeleton}</div>
+}
+#+end_src
+
+**** Use transitions for non-urgent updates
+
+#+begin_src typescript
+import { startTransition } from 'react'
+
+function ScrollTracker() {
+  const [scrollY, setScrollY] = useState(0)
+  useEffect(() => {
+    const handler = () => startTransition(() => setScrollY(window.scrollY))
+    window.addEventListener('scroll', handler, { passive: true })
+    return () => window.removeEventListener('scroll', handler)
+  }, [])
+}
+#+end_src
+
+**** useDeferredValue for expensive derived renders
+
+#+begin_src typescript
+function Search({ items }) {
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const filtered = useMemo(
+    () => items.filter(item => fuzzyMatch(item, deferredQuery)),
+    [items, deferredQuery]
+  )
+  const isStale = query !== deferredQuery
+
+  return (
+    <>
+      <input value={query} onChange={e => setQuery(e.target.value)} />
+      <div style={{ opacity: isStale ? 0.7 : 1 }}>
+        <ResultsList results={filtered} />
+      </div>
+    </>
+  )
+}
+#+end_src
+
+**** Use useRef for transient values
+
+#+begin_src typescript
+function Tracker() {
+  const lastX = useRef(0)
+  useEffect(() => {
+    const onMove = (e) => { lastX.current = e.clientX }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
+  // No re-render on mouse move
+}
+#+end_src
+
+**** Extract default non-primitive values to constants
+
+#+begin_src typescript
+const NOOP = () => {}
+
+const Avatar = memo(function Avatar({ onClick = NOOP }) {
+  // ...
+})
+#+end_src
+
+**** Split combined hook computations
+
+Separate independent computations with different deps:
+
+#+begin_src typescript
+const filtered = useMemo(
+  () => items.filter(p => p.category === category),
+  [items, category]
+)
+const sorted = useMemo(
+  () => filtered.toSorted((a, b) => sortOrder === "asc" ? a.price - b.price : b.price - a.price),
+  [filtered, sortOrder]
+)
+#+end_src
+
+*** Rendering Performance
+
+**** CSS content-visibility for long lists
+
+#+begin_src css
+.message-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 80px;
+}
+#+end_src
+
+Browser skips layout/paint for off-screen items. ~10× faster initial render for 1000 items.
+
+**** Animate SVG wrapper instead of SVG element
+
+Many browsers lack GPU acceleration for CSS animations on SVG:
+
+#+begin_src typescript
+// WRONG — no GPU acceleration
+<svg className="animate-spin">...</svg>
+
+// RIGHT — animate the wrapper
+<div className="animate-spin">
+  <svg>...</svg>
+</div>
+#+end_src
+
+**** Explicit conditional rendering
+
+#+begin_src typescript
+// WRONG — renders "0" when count is 0
+{count && <span>{count}</span>}
+
+// RIGHT
+{count > 0 ? <span>{count}</span> : null}
+#+end_src
+
+**** Use defer or async on script tags
+
+Scripts without ~defer~ or ~async~ block HTML parsing:
+
+#+begin_src typescript
+// WRONG — blocks rendering
+<script src="analytics.js" />
+
+// RIGHT — non-blocking
+<script src="analytics.js" defer />
+<script src="analytics.js" async />
+#+end_src
+
+**** Hoist RegExp creation
+
+#+begin_src typescript
+// WRONG — new RegExp every render
+function Highlighter({ text, query }) {
+  const regex = new RegExp(`(${query})`, 'gi')
+}
+
+// RIGHT — memoize
+const regex = useMemo(() => new RegExp(`(${query})`, 'gi'), [query])
+#+end_src
+
+** React Bundle Optimization
+:PROPERTIES:
+:EXPORT_SKILL_NAME: react-bundle-optimization
+:EXPORT_SKILL_DESCRIPTION: Bundle size and JavaScript performance patterns: dynamic imports, barrel file avoidance, lazy loading, array/Set/Map optimizations. Use when reducing bundle size, optimizing load time, or applying JS micro-optimizations in React apps.
+:END:
+
+# Derived from: vercel-labs/agent-skills (react-best-practices, sections 2, 7)
+
+*** Bundle Size Optimization
+
+**** Avoid barrel file imports
+
+Barrel files (~index.js~ re-exporting everything) load thousands of unused modules. Import directly:
+
+#+begin_src typescript
+// WRONG — loads entire library (~1583 modules for lucide-react)
+import { Check, X } from 'lucide-react'
+
+// RIGHT — direct import
+import Button from '@mui/material/Button'
+#+end_src
+
+Cost: 200-800ms import time. Affects ~lucide-react~, ~@mui/material~, ~@tabler/icons-react~, ~react-icons~, ~lodash~, ~date-fns~, ~rxjs~.
+
+**** Dynamic imports for heavy components
+
+#+begin_src typescript
+// WRONG — bundles with main chunk
+import { MonacoEditor } from './monaco-editor'
+
+// RIGHT — lazy loaded
+const MonacoEditor = lazy(() => import('./monaco-editor'))
+#+end_src
+
+**** Prefer statically analyzable paths
+
+#+begin_src typescript
+// WRONG — bundler can't analyze
+const Page = await import(PAGE_MODULES[pageName])
+
+// RIGHT — explicit map
+const PAGES = {
+  home: () => import('./pages/home'),
+  settings: () => import('./pages/settings'),
+}
+const Page = await PAGES[pageName]()
+#+end_src
+
+**** Preload based on user intent
+
+#+begin_src typescript
+function EditorButton({ onClick }) {
+  const preload = () => import('./monaco-editor')
+  return <button onMouseEnter={preload} onFocus={preload} onClick={onClick}>Open</button>
+}
+#+end_src
+
+*** JavaScript Performance
+
+**** Build index maps for repeated lookups
+
+#+begin_src typescript
+// WRONG — O(n) per lookup
+orders.map(o => ({ ...o, user: users.find(u => u.id === o.userId) }))
+
+// RIGHT — O(1) per lookup
+const userById = new Map(users.map(u => [u.id, u]))
+orders.map(o => ({ ...o, user: userById.get(o.userId) }))
+#+end_src
+
+For 1000 orders × 1000 users: 1M ops → 2K ops.
+
+**** Use Set/Map for O(1) lookups
+
+#+begin_src typescript
+// WRONG — O(n) per check
+items.filter(item => allowedIds.includes(item.id))
+
+// RIGHT — O(1) per check
+const allowed = new Set(allowedIds)
+items.filter(item => allowed.has(item.id))
+#+end_src
+
+**** Use flatMap to map and filter in one pass
+
+#+begin_src typescript
+// WRONG — 2 iterations
+const names = users.map(u => u.isActive ? u.name : null).filter(Boolean)
+
+// RIGHT — 1 iteration
+const names = users.flatMap(u => u.isActive ? [u.name] : [])
+#+end_src
+
+**** Use toSorted() instead of sort() for immutability
+
+#+begin_src typescript
+// WRONG — mutates original
+users.sort((a, b) => a.name.localeCompare(b.name))
+
+// RIGHT — returns new array
+users.toSorted((a, b) => a.name.localeCompare(b.name))
+#+end_src
+
+**** Cache property access in loops
+
+#+begin_src typescript
+// WRONG — 3 lookups × N iterations
+for (let i = 0; i < arr.length; i++) process(obj.x.y.z)
+
+// RIGHT — 1 lookup total
+const val = obj.x.y.z
+for (let i = 0; i < arr.length; i++) process(val)
+#+end_src
+
+**** Cache repeated function calls
+
+#+begin_src typescript
+const cache = new Map()
+
+function cachedSlugify(text) {
+  if (cache.has(text)) return cache.get(text)
+  const result = slugify(text)
+  cache.set(text, result)
+  return result
+}
+#+end_src
+
+**** Cache Storage API calls
+
+#+begin_src typescript
+const storageCache = new Map()
+
+function getLocal(key) {
+  if (!storageCache.has(key))
+    storageCache.set(key, localStorage.getItem(key))
+  return storageCache.get(key)
+}
+#+end_src
+
+**** Combine multiple array iterations
+
+#+begin_src typescript
+// WRONG — 3 iterations
+const admins = users.filter(u => u.isAdmin)
+const inactive = users.filter(u => !u.isActive)
+
+// RIGHT — 1 iteration
+const admins = [], inactive = []
+for (const u of users) {
+  if (u.isAdmin) admins.push(u)
+  if (!u.isActive) inactive.push(u)
+}
+#+end_src
+
+**** Use loop for min/max instead of sort
+
+#+begin_src typescript
+// WRONG — O(n log n)
+const sorted = [...items].sort((a, b) => b.date - a.date)
+return sorted[0]
+
+// RIGHT — O(n)
+let latest = items[0]
+for (let i = 1; i < items.length; i++)
+  if (items[i].date > latest.date) latest = items[i]
+#+end_src
+
+**** Hoist RegExp creation
+
+#+begin_src typescript
+// WRONG — recreated every call
+function validate(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) }
+
+// RIGHT — created once
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+function validate(email) { return EMAIL_RE.test(email) }
+#+end_src
+
+**** Early return from functions
+
+#+begin_src typescript
+function validateUsers(users) {
+  for (const user of users) {
+    if (!user.email) return { valid: false, error: 'Email required' }
+    if (!user.name) return { valid: false, error: 'Name required' }
+  }
+  return { valid: true }
+}
+#+end_src
+
+** React Advanced Patterns
+:PROPERTIES:
+:EXPORT_SKILL_NAME: react-advanced-patterns
+:EXPORT_SKILL_DESCRIPTION: Advanced React patterns: useEffectEvent, stable callback refs, app initialization guards, avoiding Effect Event in dependency arrays. Use when working with advanced React APIs, Effect Events, or initialization patterns.
+:END:
+
+# Derived from: vercel-labs/agent-skills (react-best-practices, section 8)
+
+*** useEffectEvent for stable callback refs
+
+Access latest values in callbacks without adding them to dependency arrays:
+
+#+begin_src typescript
+import { useEffect, useEffectEvent } from 'react'
+
+function SearchInput({ onSearch }) {
+  const [query, setQuery] = useState('')
+  const onSearchEvent = useEffectEvent(onSearch)
+
+  useEffect(() => {
+    const timeout = setTimeout(() => onSearchEvent(query), 300)
+    return () => clearTimeout(timeout)
+  }, [query])  // onSearch not in deps — no re-subscribe
+}
+#+end_src
+
+*** Don't put Effect Events in dependency arrays
+
+Effect Event functions intentionally change identity each render:
+
+#+begin_src typescript
+function Chat({ roomId, onConnected }) {
+  const handleConnected = useEffectEvent(onConnected)
+
+  // WRONG — re-runs every render
+  useEffect(() => { /* ... */ }, [roomId, handleConnected])
+
+  // RIGHT — depend on reactive values only
+  useEffect(() => { /* ... */ }, [roomId])
+}
+#+end_src
+
+*** Initialize app once, not per mount
+
+Components can remount; effects re-run:
+
+#+begin_src typescript
+let didInit = false
+
+function App() {
+  useEffect(() => {
+    if (didInit) return
+    didInit = true
+    loadFromStorage()
+    checkAuth()
+  }, [])
+}
+#+end_src
+
+*** Store event handlers in refs for stable subscriptions
+
+#+begin_src typescript
+import { useEffectEvent } from 'react'
+
+function useWindowEvent(event, handler) {
+  const onEvent = useEffectEvent(handler)
+
+  useEffect(() => {
+    window.addEventListener(event, onEvent)
+    return () => window.removeEventListener(event, onEvent)
+  }, [event])  // handler not in deps — stable subscription
+}
+#+end_src
+
+** React Composition Patterns
+:PROPERTIES:
+:EXPORT_SKILL_NAME: composition-patterns
+:EXPORT_SKILL_DESCRIPTION: React composition patterns that scale: compound components, state lifting, context interfaces, explicit variants, React 19 APIs. Use when refactoring components with boolean props, building reusable component libraries, or designing component APIs.
+:END:
+
+# Derived from: vercel-labs/agent-skills (composition-patterns)
+
+*** Avoid boolean prop proliferation
+
+Each boolean doubles possible states. Use composition instead:
+
+#+begin_src typescript
+// WRONG — exponential complexity
+function Composer({ isThread, isEditing, isDMThread, ... }) {
+  return (
+    <form>
+      {isDMThread ? <DMField /> : isThread ? <ChannelField /> : null}
+      {isEditing ? <EditActions /> : <DefaultActions />}
+    </form>
+  )
+}
+
+// RIGHT — explicit variants
+function ThreadComposer({ channelId }) {
+  return (
+    <Composer.Frame>
+      <Composer.Input />
+      <AlsoSendToChannelField id={channelId} />
+      <Composer.Footer>
+        <Composer.Submit />
+      </Composer.Footer>
+    </Composer.Frame>
+  )
+}
+
+function EditComposer() {
+  return (
+    <Composer.Frame>
+      <Composer.Input />
+      <Composer.Footer>
+        <Composer.CancelEdit />
+        <Composer.SaveEdit />
+      </Composer.Footer>
+    </Composer.Frame>
+  )
+}
+#+end_src
+
+*** Compound components with shared context
+
+#+begin_src typescript
+const ComposerContext = createContext(null)
+
+function Provider({ children, state, actions, meta }) {
+  return <ComposerContext value={{ state, actions, meta }}>{children}</ComposerContext>
+}
+
+function Input() {
+  const { state, actions } = use(ComposerContext)
+  return <TextInput value={state.input} onChangeText={text => actions.update(s => ({ ...s, input: text }))} />
+}
+
+function Submit() {
+  const { actions } = use(ComposerContext)
+  return <Button onPress={actions.submit}>Send</Button>
+}
+
+const Composer = { Provider, Frame, Input, Submit, Header, Footer }
+#+end_src
+
+*** Define generic context interfaces
+
+Three parts: ~state~ (data), ~actions~ (callbacks), ~meta~ (refs/config):
+
+#+begin_src typescript
+interface ComposerContextValue {
+  state: ComposerState
+  actions: ComposerActions
+  meta: ComposerMeta
+}
+#+end_src
+
+Different providers implement the same interface:
+
+#+begin_src typescript
+// Provider A: local state
+function ForwardProvider({ children }) {
+  const [state, setState] = useState(initState)
+  return <Composer.Provider state={state} actions={{ update: setState, submit }}>{children}</Composer.Provider>
+}
+
+// Provider B: global synced state
+function ChannelProvider({ channelId, children }) {
+  const { state, update, submit } = useGlobalChannel(channelId)
+  return <Composer.Provider state={state} actions={{ update, submit }}>{children}</Composer.Provider>
+}
+
+// Same UI works with both
+<ForwardProvider><Composer.Frame><Composer.Input /><Composer.Submit /></Composer.Frame></ForwardProvider>
+<ChannelProvider channelId="abc"><Composer.Frame><Composer.Input /><Composer.Submit /></Composer.Frame></ChannelProvider>
+#+end_src
+
+*** Lift state into providers
+
+Components needing shared state don't need visual nesting — just the same provider:
+
+#+begin_src typescript
+function ForwardMessageDialog() {
+  return (
+    <ForwardMessageProvider>
+      <Dialog>
+        <Composer.Frame>
+          <Composer.Input />
+        </Composer.Frame>
+        <MessagePreview />       {/* outside Frame, inside provider */}
+        <DialogActions>
+          <ForwardButton />      {/* outside Frame, inside provider */}
+        </DialogActions>
+      </Dialog>
+    </ForwardMessageProvider>
+  )
+}
+
+function ForwardButton() {
+  const { actions } = use(ComposerContext)
+  return <Button onPress={actions.submit}>Forward</Button>
+}
+#+end_src
+
+*** Prefer children over render props
+
+#+begin_src typescript
+// WRONG — awkward render props
+<Composer renderHeader={() => <Header />} renderFooter={() => <><Formatting /><Submit /></>} />
+
+// RIGHT — compound components
+<Composer.Frame>
+  <Composer.Header />
+  <Composer.Input />
+  <Composer.Footer>
+    <Composer.Formatting />
+    <Composer.Submit />
+  </Composer.Footer>
+</Composer.Frame>
+#+end_src
+
+Use render props only when the parent needs to pass data back (e.g., ~renderItem={({ item }) => ...}~).
+
+*** React 19 API changes
+
+**** Ref as regular prop (no forwardRef)
+
+#+begin_src typescript
+// React 18
+const Input = forwardRef<HTMLInputElement, Props>((props, ref) => <input ref={ref} {...props} />)
+
+// React 19
+function Input({ ref, ...props }: Props & { ref?: Ref<HTMLInputElement> }) {
+  return <input ref={ref} {...props} />
+}
+#+end_src
+
+**** use() instead of useContext
+
+#+begin_src typescript
+// React 18
+const value = useContext(MyContext)
+
+// React 19
+const value = use(MyContext)
+// Can be called conditionally
+#+end_src
+
+** React View Transitions
+:PROPERTIES:
+:EXPORT_SKILL_NAME: react-view-transitions
+:EXPORT_SKILL_DESCRIPTION: Animate UI state changes using React's View Transition API: ViewTransition component, shared element morphs, CSS pseudo-elements, Suspense reveals, list reorder. Use when adding page transitions, route animations, or shared element animations in React apps.
+:END:
+
+# Derived from: vercel-labs/agent-skills (react-view-transitions)
+
+*** Core Concepts
+
+**** ViewTransition component
+
+#+begin_src typescript
+import { ViewTransition } from 'react'
+
+<ViewTransition>
+  <Component />
+</ViewTransition>
+#+end_src
+
+Only activated by ~startTransition~, ~useDeferredValue~, or ~Suspense~. Regular ~setState~ does not animate.
+
+**** Critical placement rule
+
+VT only activates if it appears before any DOM nodes:
+
+#+begin_src typescript
+// Works
+<ViewTransition enter="auto"><div>Content</div></ViewTransition>
+
+// Broken — div wraps VT
+<div><ViewTransition enter="auto"><div>Content</div></ViewTransition></div>
+#+end_src
+
+**** Animation triggers
+
+| Trigger | When it fires |
+|---------+---------------|
+| ~enter~ | VT inserted during a transition |
+| ~exit~ | VT removed during a transition |
+| ~update~ | DOM mutations inside VT |
+| ~share~ | Same ~name~ unmounts in one VT and mounts in another |
+
+**** Styling with view transition classes
+
+#+begin_src typescript
+<ViewTransition
+  default="none"
+  enter="slide-in"
+  exit="slide-out"
+  share="morph"
+/>
+#+end_src
+
+CSS pseudo-elements:
+
+#+begin_src css
+::view-transition-old(.slide-out) { /* outgoing snapshot */ }
+::view-transition-new(.slide-in)  { /* incoming snapshot */ }
+#+end_src
+
+*** Transition types
+
+Tag transitions with ~addTransitionType~ for context-specific animations:
+
+#+begin_src typescript
+import { addTransitionType } from 'react'
+
+startTransition(() => {
+  addTransitionType('nav-forward')
+  router.push('/detail/1')
+})
+#+end_src
+
+Map types to CSS classes:
+
+#+begin_src typescript
+<ViewTransition
+  default="none"
+  enter={{ 'nav-forward': 'slide-from-right', 'nav-back': 'slide-from-left', default: 'none' }}
+  exit={{ 'nav-forward': 'slide-to-left', 'nav-back': 'slide-to-right', default: 'none' }}
+>
+  <Page />
+</ViewTransition>
+#+end_src
+
+*** Shared element transitions
+
+Same ~name~ on two VTs creates a morph:
+
+#+begin_src typescript
+<ViewTransition name="hero-image">
+  <img src="/thumb.jpg" onClick={() => startTransition(() => onSelect())} />
+</ViewTransition>
+
+<ViewTransition name="hero-image">
+  <img src="/full.jpg" />
+</ViewTransition>
+#+end_src
+
+Only one VT with a given ~name~ can be mounted at a time — use unique IDs.
+
+*** Common patterns
+
+**** Enter/Exit
+
+#+begin_src typescript
+{show && (
+  <ViewTransition enter="fade-in" exit="fade-out">
+    <Panel />
+  </ViewTransition>
+)}
+#+end_src
+
+**** List reorder
+
+#+begin_src typescript
+{items.map(item => (
+  <ViewTransition key={item.id}>
+    <ItemCard item={item} />
+  </ViewTransition>
+))}
+#+end_src
+
+Trigger inside ~startTransition~. No wrapper ~<div>~ between list and VT.
+
+**** Composing shared elements with list identity
+
+#+begin_src typescript
+{items.map(item => (
+  <ViewTransition key={item.id}>                                          {/* list identity */}
+    <Link to={`/items/${item.id}`}>
+      <ViewTransition name={`image-${item.id}`} share="morph" default="none">  {/* shared element */}
+        <Image src={item.image} />
+      </ViewTransition>
+    </Link>
+  </ViewTransition>
+))}
+#+end_src
+
+Missing either layer means that animation silently doesn't happen.
+
+**** Force re-enter with key
+
+#+begin_src typescript
+<ViewTransition key={searchParams.toString()} enter="slide-up" default="none">
+  <ResultsGrid />
+</ViewTransition>
+#+end_src
+
+**** Suspense fallback to content
+
+#+begin_src typescript
+<Suspense fallback={<ViewTransition exit="slide-down"><Skeleton /></ViewTransition>}>
+  <ViewTransition enter="slide-up" default="none"><Content /></ViewTransition>
+</Suspense>
+#+end_src
+
+*** CSS animation recipes
+
+#+begin_src css
+:root {
+  --duration-exit: 150ms;
+  --duration-enter: 210ms;
+  --duration-move: 400ms;
+}
+
+@keyframes fade {
+  from { filter: blur(3px); opacity: 0; }
+  to { filter: blur(0); opacity: 1; }
+}
+
+/* Fade */
+::view-transition-old(.fade-out) {
+  animation: var(--duration-exit) ease-in fade reverse;
+}
+::view-transition-new(.fade-in) {
+  animation: var(--duration-enter) ease-out var(--duration-exit) both fade;
+}
+
+/* Directional navigation */
+::view-transition-old(.nav-forward) { animation: 150ms ease-in fade reverse; }
+::view-transition-new(.nav-forward) { animation: 210ms ease-out 150ms both fade; }
+::view-transition-old(.nav-back) { animation: 150ms ease-in fade reverse; }
+::view-transition-new(.nav-back) { animation: 210ms ease-out 150ms both fade; }
+
+/* Shared element morph */
+::view-transition-group(.morph) {
+  animation-duration: var(--duration-move);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+  }
+}
+#+end_src
+
+*** Accessibility
+
+#+begin_src css
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+#+end_src
+
+*** Troubleshooting
+
+| Symptom | Fix |
+|---------+-----|
+| VT not activating | Ensure VT comes before any DOM node; ensure ~startTransition~ |
+| "Two VTs with same name" | Names must be globally unique — use IDs |
+| Layout VT prevents page VTs from animating | Remove layout VT wrapping ~{children}~ |
+| Only updates animate | Conditionally render VT itself or wrap in ~Suspense~ |
+| ~default~ key missing | Type-keyed objects require ~default~ key |
+| Backdrop-blur flickers | ~::view-transition-old(name) { display: none }~ |

@@ -20,9 +20,10 @@
 ;; Guard: Eldev loads this file twice (require + -l), so skip on re-entry
 (unless (boundp 'export-skills--done)
   (setq export-skills--done t)
-  ;; Visit the file first to initialise org-element cache
-  (find-file "SKILLS.org")
-  (ox-skills-export-wim-to-md t))
+  (dolist (file '("SKILLS.org" "REACT-SKILLS.org"))
+    (when (file-exists-p file)
+      (find-file file)
+      (ox-skills-export-wim-to-md t))))
 
 (provide 'export-skills)
 
