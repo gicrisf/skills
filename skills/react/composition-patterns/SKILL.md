@@ -1,10 +1,10 @@
 ---
 name: composition-patterns
 description: >
-  React composition patterns that scale: compound components, state lifting,
-  context interfaces, explicit variants, React 19 APIs. Use when refactoring
-  components with boolean props, building reusable component libraries, or
-  designing component APIs.
+  React composition patterns with Zustand + Immer: compound components, slices
+  pattern, scoped stores via createStore + Context, explicit variants. Use
+  when refactoring components with boolean props, building reusable component
+  libraries, or designing component APIs.
 ---
 
 # React Composition Patterns
@@ -50,86 +50,190 @@ function EditComposer() {
 }
 ```
 
-## Compound components with shared context
+## Compound components with Zustand store
+
+Replace Context-as-state-delivery with a Zustand store. For a singleton composer, components import the store hook directly — no Provider tree needed. Use Immer middleware so actions can mutate a draft:
 
 ```typescript
-const ComposerContext = createContext(null)
+import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
 
-function Provider({ children, state, actions, meta }) {
-  return <ComposerContext value={{ state, actions, meta }}>{children}</ComposerContext>
+type ComposerState = {
+  input: string
+  attachments: Attachment[]
+  isSubmitting: boolean
+}
+type ComposerActions = {
+  setInput: (input: string) => void
+  addAttachment: (a: Attachment) => void
+  removeAttachment: (id: string) => void
+  submit: () => Promise<void>
 }
 
+const useComposerStore = create<ComposerState & ComposerActions>()(
+  immer((set, get) => ({
+    input: '',
+    attachments: [],
+    isSubmitting: false,
+    setInput: (input) => set((s) => { s.input = input }),
+    addAttachment: (a) => set((s) => { s.attachments.push(a) }),
+    removeAttachment: (id) => set((s) => {
+      s.attachments = s.attachments.filter(a => a.id !== id)
+    }),
+    submit: async () => {
+      set((s) => { s.isSubmitting = true })
+      try { await send(get().input, get().attachments) }
+      finally { set((s) => { s.isSubmitting = false }) }
+    },
+  }))
+)
+
 function Input() {
-  const { state, actions } = use(ComposerContext)
-  return <TextInput value={state.input} onChangeText={text => actions.update(s => ({ ...s, input: text }))} />
+  const input = useComposerStore(s => s.input)
+  const setInput = useComposerStore(s => s.setInput)
+  return <TextInput value={input} onChangeText={setInput} />
 }
 
 function Submit() {
-  const { actions } = use(ComposerContext)
-  return <Button onPress={actions.submit}>Send</Button>
+  const submit = useComposerStore(s => s.submit)
+  const disabled = useComposerStore(s => s.isSubmitting)
+  return <Button onPress={submit} disabled={disabled}>Send</Button>
 }
 
-const Composer = { Provider, Frame, Input, Submit, Header, Footer }
+const Composer = { Frame: ComposerFrame, Input, Submit, Header, Footer }
 ```
 
-## Define generic context interfaces
+Conventions, per the Zustand docs:
 
-Three parts: `state` (data), `actions` (callbacks), `meta` (refs/config):
+- Colocate actions next to state, with intent-revealing names (`setInput`, `addAttachment`) — avoid a generic `update(fn)` that exposes the whole shape.
+- `set` shallow-merges by default, so spreads like `set(s => ({ ...s, input }))` are redundant. With Immer, just mutate: `set((s) => { s.input = input })`.
+- Subscribe to one value per `useStore` call. Selecting an object literal needs `useShallow` (see render-optimization skill).
+
+Usage — no Provider wrapper:
 
 ```typescript
-interface ComposerContextValue {
-  state: ComposerState
-  actions: ComposerActions
-  meta: ComposerMeta
-}
+<Composer.Frame>
+  <Composer.Input />
+  <Composer.Footer>
+    <Composer.Submit />
+  </Composer.Footer>
+</Composer.Frame>
 ```
 
-Different providers implement the same interface:
+## Split features with the slices pattern
+
+When a store grows, split it into slices and combine them. Each slice owns its state + actions; consumers don't know about the split:
 
 ```typescript
-// Provider A: local state
-function ForwardProvider({ children }) {
-  const [state, setState] = useState(initState)
-  return <Composer.Provider state={state} actions={{ update: setState, submit }}>{children}</Composer.Provider>
+import { create, StateCreator } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+
+type InputSlice = {
+  input: string
+  setInput: (input: string) => void
+}
+type AttachmentSlice = {
+  attachments: Attachment[]
+  addAttachment: (a: Attachment) => void
 }
 
-// Provider B: global synced state
-function ChannelProvider({ channelId, children }) {
-  const { state, update, submit } = useGlobalChannel(channelId)
-  return <Composer.Provider state={state} actions={{ update, submit }}>{children}</Composer.Provider>
-}
+// Immer slice signature: see Advanced TypeScript guide
+const createInputSlice: StateCreator<
+  InputSlice & AttachmentSlice,
+  [['zustand/immer', never]],
+  [],
+  InputSlice
+> = (set) => ({
+  input: '',
+  setInput: (input) => set((s) => { s.input = input }),
+})
 
-// Same UI works with both
-<ForwardProvider><Composer.Frame><Composer.Input /><Composer.Submit /></Composer.Frame></ForwardProvider>
-<ChannelProvider channelId="abc"><Composer.Frame><Composer.Input /><Composer.Submit /></Composer.Frame></ChannelProvider>
+const createAttachmentSlice: StateCreator<
+  InputSlice & AttachmentSlice,
+  [['zustand/immer', never]],
+  [],
+  AttachmentSlice
+> = (set) => ({
+  attachments: [],
+  addAttachment: (a) => set((s) => { s.attachments.push(a) }),
+})
+
+const useComposerStore = create<InputSlice & AttachmentSlice>()(
+  immer((...a) => ({
+    ...createInputSlice(...a),
+    ...createAttachmentSlice(...a),
+  }))
+)
 ```
 
-## Lift state into providers
+Slices can read each other via `get()`. Apply middleware only on the combined store, not inside individual slices.
 
-Components needing shared state don't need visual nesting — just the same provider:
+## Scoped stores via createStore + Context
+
+When multiple instances of the same component need independent state (each dialog gets its own composer), build a vanilla store per-instance and provide it through Context — this is the Zustand-recommended pattern for "initialize state with props":
 
 ```typescript
+import { createStore, useStore } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+import { createContext, useContext, useState } from 'react'
+
+type ComposerStore = ReturnType<typeof createComposerStore>
+
+function createComposerStore(initial?: Partial<ComposerState>) {
+  return createStore<ComposerState & ComposerActions>()(
+    immer((set) => ({
+      input: '',
+      attachments: [],
+      isSubmitting: false,
+      ...initial,
+      setInput: (input) => set((s) => { s.input = input }),
+      addAttachment: (a) => set((s) => { s.attachments.push(a) }),
+      removeAttachment: (id) => set((s) => {
+        s.attachments = s.attachments.filter(a => a.id !== id)
+      }),
+      submit: async () => { /* ... */ },
+    }))
+  )
+}
+
+const ComposerContext = createContext<ComposerStore | null>(null)
+
+function ComposerProvider({ children, initial }: { children: ReactNode; initial?: Partial<ComposerState> }) {
+  const [store] = useState(() => createComposerStore(initial))  // stable across renders
+  return <ComposerContext.Provider value={store}>{children}</ComposerContext.Provider>
+}
+
+// Custom hook mirrors the shape of `create`'s hook
+function useComposer<T>(selector: (s: ComposerState & ComposerActions) => T): T {
+  const store = useContext(ComposerContext)
+  if (!store) throw new Error('Missing ComposerProvider')
+  return useStore(store, selector)
+}
+
 function ForwardMessageDialog() {
   return (
-    <ForwardMessageProvider>
+    <ComposerProvider initial={{ input: 'FWD: ' }}>
       <Dialog>
-        <Composer.Frame>
-          <Composer.Input />
-        </Composer.Frame>
-        <MessagePreview />       {/* outside Frame, inside provider */}
-        <DialogActions>
-          <ForwardButton />      {/* outside Frame, inside provider */}
-        </DialogActions>
+        <ComposerFrame />
+        <MessagePreview />
+        <ForwardButton />
       </Dialog>
-    </ForwardMessageProvider>
+    </ComposerProvider>
   )
 }
 
 function ForwardButton() {
-  const { actions } = use(ComposerContext)
-  return <Button onPress={actions.submit}>Forward</Button>
+  const submit = useComposer(s => s.submit)
+  return <Button onPress={submit}>Forward</Button>
 }
 ```
+
+Two things to get right:
+
+- Use `useState(() => createStore(...))`, not `useMemo`. `useState` guarantees the store survives across renders; `useMemo` may be evicted in some environments.
+- Context here delivers the store reference — never raw state. Components still subscribe through `useStore(store, selector)`, so selector-based re-render scoping still works.
+
+For non-reactive state per instance (DOM handles, abort controllers, debounce timers), keep `useRef` — refs aren't React state and shouldn't be in the store.
 
 ## Prefer children over render props
 
@@ -162,16 +266,5 @@ const Input = forwardRef<HTMLInputElement, Props>((props, ref) => <input ref={re
 function Input({ ref, ...props }: Props & { ref?: Ref<HTMLInputElement> }) {
   return <input ref={ref} {...props} />
 }
-```
-
-### use() instead of useContext
-
-```typescript
-// React 18
-const value = useContext(MyContext)
-
-// React 19
-const value = use(MyContext)
-// Can be called conditionally
 ```
 

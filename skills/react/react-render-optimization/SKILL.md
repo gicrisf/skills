@@ -93,6 +93,65 @@ function Container() {
 }
 ```
 
+### Zustand selectors for fine-grained re-renders
+
+Subscribe to one slice at a time — a component re-renders only when its selected value changes by `Object.is`. With Immer middleware, actions mutate a draft directly:
+
+```typescript
+import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+
+type State = {
+  user: { name: string; email: string; avatar: string }
+  isOpen: boolean
+}
+type Actions = {
+  setUserName: (name: string) => void
+  toggle: () => void
+}
+
+const useStore = create<State & Actions>()(
+  immer((set) => ({
+    user: { name: 'Alice', email: 'a@b.com', avatar: '/img.png' },
+    isOpen: false,
+    setUserName: (name) => set((s) => { s.user.name = name }),
+    toggle: () => set((s) => { s.isOpen = !s.isOpen }),
+  }))
+)
+
+// Re-renders only when user.name changes
+function UserName() {
+  const name = useStore(s => s.user.name)
+  return <span>{name}</span>
+}
+
+// Re-renders only when isOpen flips — unaffected by user updates
+function Panel() {
+  const isOpen = useStore(s => s.isOpen)
+  return isOpen ? <div>...</div> : null
+}
+```
+
+More targeted than passing whole objects through props or Context. Note the extra `()` after `create<...>` — required when chaining middleware in TypeScript.
+
+### Use useShallow when selecting multiple values
+
+A selector that returns a new object/array creates a fresh reference each render and re-renders on every store change. Wrap it in `useShallow` to compare contents instead:
+
+```typescript
+import { useShallow } from 'zustand/react/shallow'
+
+// WRONG — new object each render → re-renders on any store change
+const { name, email } = useStore(s => ({ name: s.user.name, email: s.user.email }))
+
+// RIGHT — shallow-compares the returned object
+const { name, email } = useStore(
+  useShallow(s => ({ name: s.user.name, email: s.user.email }))
+)
+```
+
+Same applies to array-returning selectors (`Object.keys(state)`, filtered lists). For a single primitive value, no wrapper is needed.
+
 ### Use transitions for non-urgent updates
 
 ```typescript
