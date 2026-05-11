@@ -235,6 +235,125 @@ Two things to get right:
 
 For non-reactive state per instance (DOM handles, abort controllers, debounce timers), keep `useRef` — refs aren't React state and shouldn't be in the store.
 
+## Action design patterns
+
+### Cross-slice access via get()
+
+Slices stay decoupled at the type level but coordinate at runtime through `get()`. A UI-slice action can call a domain-slice action without importing it:
+
+```typescript
+// uiSlice — declares only its own shape in its interface
+confirmDelete: () => {
+  const id = get().pendingDeleteId
+  if (id !== null) {
+    get().deleteItem(id)                  // action lives in domainSlice
+    set((state) => { state.pendingDeleteId = null })
+  }
+},
+```
+
+The combined store type makes `get()` return the full surface. Use this for orchestration (UI → domain) rather than reaching into another slice's state to re-implement its logic.
+
+### Read-then-set split
+
+Read values via `get()` before calling `set`. Keeps the Immer recipe focused on mutation and avoids redundant lookups inside it:
+
+```typescript
+commitGesture: () => {
+  const { gesture, preGestureSnapshot, items } = get()
+  if (!gesture) return
+
+  const item = items[gesture.targetId]
+  const derivedIndex = computeIndex(item)   // computed once, outside the recipe
+
+  set((state) => {
+    if (preGestureSnapshot) {
+      state.history = pushHistory(preGestureSnapshot, state.history)
+    }
+    state.gesture = null
+    state.preGestureSnapshot = null
+  })
+
+  // Side effects use the pre-mutation values
+  if (item) get().syncRemote(derivedIndex, item)
+},
+```
+
+Particularly useful when you need a value as it was **before** the mutation, or want to compute derived data outside the recipe.
+
+### Batch intermediate state — commit one history entry
+
+Continuous interactions (drag, resize, scrub, range-select) emit many state updates but should be a single undoable step. Snapshot on start, mutate freely during, commit once on end:
+
+```typescript
+startGesture: (targetId, originX, originY) => {
+  const target = get().items[targetId]
+  if (!target) return
+  set((state) => {
+    state.gesture = { targetId, offsetX: originX - target.x, offsetY: originY - target.y }
+    state.preGestureSnapshot = toUndoableState(state)   // snapshot, don't push yet
+  })
+},
+
+updateGesture: (x, y) => {
+  const { gesture } = get()
+  if (!gesture) return
+  set((state) => {                                       // no history push during gesture
+    const t = state.items[gesture.targetId]
+    t.x = x - gesture.offsetX
+    t.y = y - gesture.offsetY
+  })
+},
+
+endGesture: () => {
+  const { gesture, preGestureSnapshot } = get()
+  if (!gesture) return
+  set((state) => {
+    if (preGestureSnapshot) {
+      state.history = pushHistory(preGestureSnapshot, state.history)   // commit once
+    }
+    state.gesture = null
+    state.preGestureSnapshot = null
+  })
+},
+```
+
+Same shape works for any "begin / progress / end" interaction.
+
+### Fire-and-forget async side effects after set
+
+Update local state synchronously, then kick off remote sync without awaiting. The action stays sync, the UI stays responsive, and optimistic-update semantics fall out naturally:
+
+```typescript
+createItem: (payload) => {
+  set((state) => {
+    state.items[state.nextId] = { id: state.nextId, ...payload }
+    state.nextId += 1
+  })
+  get().syncCreate(payload)   // async, not awaited — failures handled inside
+}
+```
+
+Put the sync action in its own slice (e.g. an `apiSlice`) so it owns its error/retry state without leaking into the domain slice.
+
+### Combined store type, re-declared per slice
+
+Each slice re-declares the combined type locally to type its `StateCreator`:
+
+```typescript
+// inside domainSlice.ts
+type AppStore = DomainSlice & UiSlice & ApiSlice
+
+export const createDomainSlice: StateCreator<
+  AppStore,
+  [['zustand/immer', never]],
+  [],
+  DomainSlice
+> = (set, get) => ({ /* ... */ })
+```
+
+The canonical `AppStore` still lives in the entry file (`useAppStore.ts`). Re-deriving it inside each slice from sibling interfaces is a small duplication that avoids the circular import you'd hit by importing the combined type back into a slice.
+
 ## Prefer children over render props
 
 ```typescript
