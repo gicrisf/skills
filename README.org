@@ -55,3 +55,9 @@ MIT. See [[./LICENSE][LICENSE]].
 Some skills adapted from:
 - [[https://github.com/JuliusBrussee/caveman][JuliusBrussee/caveman]] (MIT)
 - [[https://github.com/mattpocock/skills][mattpocock/skills]] (MIT)
+
+Vendored skills (hand-written =.md=, not exported from Org):
+- =skills/effective-html/= from
+  [[https://github.com/plannotator/effective-html][plannotator/effective-html]]
+  @ =2ac1dfe= (MIT). See =skills/effective-html/UPSTREAM= for the pinned
+  revision and re-sync instructions.

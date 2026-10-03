@@ -1,0 +1,10 @@
+source: https://github.com/plannotator/effective-html.git
+revision: 2ac1dfecb0f2474e75260cb6d3c9b9d6d9b5062e
+copied: 2026-10-03
+license: MIT (see LICENSE in this directory)
+
+Vendored copy. The skills were taken from the upstream skills/ directory
+with per-skill agents/ helper files excluded. To check for upstream changes:
+
+  git -C /path/to/effective-html fetch
+  diff -r --exclude=agents /path/to/effective-html/skills skills/effective-html
